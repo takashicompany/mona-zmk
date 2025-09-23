@@ -159,7 +159,7 @@
         MOUSE {     //レイヤー6 - マウスレイヤー
             bindings = <
             &none   &none     &none     &none     &none                     &none   &none   &none   &none   &none
-            &none   &mkp MB1  &mkp MB3  &mkp MB2  &none   &none            &none   &none   &none   &none   &none
+            &mkp MB3   &mkp MB2  &mkp MB3  &mkp MB1  &none   &none            &none   &none   &none   &none   &none
             &none   &none     &none     &none     &none   &none    &none   &none   &none   &none   &none   &none
             &none                                 &none   &none    &none   &none   &none   &none   &none   &none
             >;
