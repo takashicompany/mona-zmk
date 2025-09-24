@@ -1,0 +1,31 @@
+description: Omnidirectional scroll behavior
+
+compatible: "zmk,behavior-omni-scroll"
+
+include: zero_param.yaml
+
+properties:
+  threshold:
+    type: int
+    default: 5
+    description: Minimum movement magnitude to trigger scroll
+
+  vertical-bias:
+    type: int
+    default: 15
+    description: Vertical preference factor (x10, so 15 = 1.5)
+
+  horizontal-bias:
+    type: int
+    default: 15
+    description: Horizontal preference factor (x10, so 15 = 1.5)
+
+  smoothing:
+    type: int
+    default: 3
+    description: Number of samples for direction smoothing
+
+  diagonal-threshold:
+    type: int
+    default: 30
+    description: Angle threshold for diagonal detection (degrees)

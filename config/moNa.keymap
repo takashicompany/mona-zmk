@@ -73,6 +73,15 @@
             tap-ms = <20>;
         };
 
+        omni_scroll: omni_scroll {
+            compatible = "zmk,behavior-omni-scroll";
+            #sensor-binding-cells = <0>;
+            threshold = <5>;        // 最小移動量
+            vertical-bias = <15>;   // 垂直優先係数 (1.5)
+            horizontal-bias = <10>; // 水平係数 (1.0)
+            smoothing = <3>;        // 平滑化サンプル数
+            diagonal-threshold = <30>; // 対角判定角度
+        };
 
     };
 
@@ -177,9 +186,9 @@
             &trans                                          &to 0        &trans         &trans             &to 0      &trans     &trans         &trans        &trans
             >;
 
-            sensor-bindings = 
-                <&mouse_scroll SCRL_UP SCRL_DOWN>,
-                <&mouse_scroll SCRL_UP SCRL_DOWN>;
+            sensor-bindings =
+                <&omni_scroll>,
+                <&omni_scroll>;
         };
     };
 };
