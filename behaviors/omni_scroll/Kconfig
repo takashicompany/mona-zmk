@@ -1,8 +1,0 @@
-config ZMK_BEHAVIOR_OMNI_SCROLL
-    bool "Enable omnidirectional scroll behavior"
-    default y
-    depends on ZMK_POINTING
-    help
-        Enable the omnidirectional scroll behavior that automatically
-        determines scroll direction (vertical or horizontal) based on
-        trackball movement direction.
