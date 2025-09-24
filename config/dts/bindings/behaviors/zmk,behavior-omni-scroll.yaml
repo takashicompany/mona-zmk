@@ -2,9 +2,11 @@ description: Omnidirectional scroll behavior
 
 compatible: "zmk,behavior-omni-scroll"
 
-include: zero_param.yaml
-
 properties:
+  "#sensor-binding-cells":
+    type: int
+    const: 0
+    required: false
   threshold:
     type: int
     default: 5
