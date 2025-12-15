@@ -18,9 +18,9 @@
 #
 ---
 include:
-  - board: xiao_ble
+  - board: seeeduino_xiao_ble
     shield: moNa_L rgbled_adapter
-  - board: xiao_ble
+  - board: seeeduino_xiao_ble
     shield: moNa_R rgbled_adapter
-  - board: xiao_ble
+  - board: seeeduino_xiao_ble
     shield: settings_reset
