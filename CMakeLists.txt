@@ -1,0 +1,1 @@
+target_sources_ifdef(CONFIG_ZMK_BEHAVIOR_BLE_INFO app PRIVATE src/behaviors/behavior_ble_info.c)

@@ -1,0 +1,8 @@
+/ {
+    behaviors {
+        /omit-if-no-ref/ ble_info: ble_info {
+            compatible = "zmk,behavior-ble-info";
+            #binding-cells = <0>;
+        };
+    };
+};

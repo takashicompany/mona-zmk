@@ -1,0 +1,3 @@
+description: BLE Profile Info - outputs BLE profile status as HID keystrokes
+compatible: "zmk,behavior-ble-info"
+include: zero_param.yaml
