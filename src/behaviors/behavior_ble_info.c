@@ -51,7 +51,7 @@ static uint8_t char_to_hid_keycode(char c, bool *need_shift) {
         return HID_USAGE_KEY_KEYBOARD_APOSTROPHE_AND_QUOTE; /* JIS: colon */
     }
     if (c == '[') {
-        return HID_USAGE_KEY_KEYBOARD_RIGHT_BRACKET_AND_LEFT_BRACE; /* JIS: [ */
+        return HID_USAGE_KEY_KEYBOARD_RIGHT_BRACKET_AND_RIGHT_BRACE; /* JIS: [ */
     }
     if (c == ']') {
         return HID_USAGE_KEY_KEYBOARD_NON_US_HASH_AND_TILDE; /* JIS: ] */
