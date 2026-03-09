@@ -54,6 +54,36 @@
             bindings = <&to 0 &macro_param_1to1 &kp MACRO_PLACEHOLDER>;
             label = "TO_LAYER_0";
         };
+
+        bt_clr_prof_0: bt_clr_prof_0 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&bt BT_SEL 0>, <&bt BT_CLR>;
+        };
+
+        bt_clr_prof_1: bt_clr_prof_1 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&bt BT_SEL 1>, <&bt BT_CLR>;
+        };
+
+        bt_clr_prof_2: bt_clr_prof_2 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&bt BT_SEL 2>, <&bt BT_CLR>;
+        };
+
+        bt_clr_prof_3: bt_clr_prof_3 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&bt BT_SEL 3>, <&bt BT_CLR>;
+        };
+
+        bt_clr_prof_4: bt_clr_prof_4 {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&bt BT_SEL 4>, <&bt BT_CLR>;
+        };
     };
 
     //新たな動作を定義する
@@ -151,7 +181,7 @@
             bindings = <
 &none           &ble_info     &none         &none         &none                         &none  &none  &none  &none  &none
 &bt BT_SEL 0    &bt BT_SEL 1  &bt BT_SEL 2  &bt BT_SEL 3  &bt BT_SEL 4  &none           &none  &none  &none  &none  &none
-&none           &none         &none         &none         &none         &none    &none  &none  &none  &none  &none  &none
+&none           &none         &none         &none         &none         &none    &none  &none  &none  &none  &mo 8  &none
 &bt BT_CLR_ALL                                            &none         &none    &none  &none  &none  &none  &none  &none
             >;
 
@@ -184,6 +214,19 @@
             sensor-bindings =
                 <&mouse_scroll SCRL_UP SCRL_DOWN>,
                 <&mouse_scroll SCRL_UP SCRL_DOWN>;
+        };
+
+        layer_8 {
+            bindings = <
+&none             &none             &none             &none             &none                              &none  &none  &none  &none  &none
+&bt_clr_prof_0    &bt_clr_prof_1    &bt_clr_prof_2    &bt_clr_prof_3    &bt_clr_prof_4    &none            &none  &none  &none  &none  &none
+&none             &none             &none             &none             &none             &none    &none   &none  &none  &none  &none  &none
+&none                                                                   &none             &none    &none   &none  &none  &none  &none  &none
+            >;
+
+            sensor-bindings =
+                <&inc_dec_kp C_BRI_DN C_BRI_UP>,
+                <&inc_dec_kp C_BRI_DN C_BRI_UP>;
         };
     };
 };
