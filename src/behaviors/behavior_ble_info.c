@@ -27,29 +27,34 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define BLE_INFO_BUF_SIZE 128
 #define BLE_INFO_KEY_DELAY_MS 20
 
-/* HID keycode lookup tables */
-static const uint8_t hid_key_a = HID_USAGE_KEY_KEYBOARD_A;                    /* 0x04 */
-static const uint8_t hid_key_space = HID_USAGE_KEY_KEYBOARD_SPACEBAR;         /* 0x2C */
-static const uint8_t hid_key_1 = HID_USAGE_KEY_KEYBOARD_1_AND_EXCLAMATION;    /* 0x1E */
-
 static uint8_t char_to_hid_keycode(char c, bool *need_shift) {
     *need_shift = false;
 
     if (c >= 'a' && c <= 'z') {
-        return hid_key_a + (c - 'a');
+        return HID_USAGE_KEY_KEYBOARD_A + (c - 'a');
     }
     if (c >= 'A' && c <= 'Z') {
         *need_shift = true;
-        return hid_key_a + (c - 'A');
+        return HID_USAGE_KEY_KEYBOARD_A + (c - 'A');
     }
     if (c >= '1' && c <= '9') {
-        return hid_key_1 + (c - '1');
+        return HID_USAGE_KEY_KEYBOARD_1_AND_EXCLAMATION + (c - '1');
     }
     if (c == '0') {
-        return HID_USAGE_KEY_KEYBOARD_0_AND_RIGHT_PARENTHESIS; /* 0x27 */
+        return HID_USAGE_KEY_KEYBOARD_0_AND_RIGHT_PARENTHESIS;
     }
     if (c == ' ') {
-        return hid_key_space;
+        return HID_USAGE_KEY_KEYBOARD_SPACEBAR;
+    }
+    /* JIS-specific mappings */
+    if (c == ':') {
+        return HID_USAGE_KEY_KEYBOARD_APOSTROPHE_AND_QUOTE; /* JIS: colon */
+    }
+    if (c == '[') {
+        return HID_USAGE_KEY_KEYBOARD_RIGHT_BRACKET_AND_LEFT_BRACE; /* JIS: [ */
+    }
+    if (c == ']') {
+        return HID_USAGE_KEY_KEYBOARD_NON_US_HASH_AND_TILDE; /* JIS: ] */
     }
 
     return 0; /* unsupported character */
@@ -118,70 +123,46 @@ static void ble_info_work_handler(struct k_work *work) {
     k_work_schedule(&ble_info_work, K_MSEC(BLE_INFO_KEY_DELAY_MS));
 }
 
+static int buf_append_str(char *buf, int pos, int max, const char *str) {
+    for (int i = 0; str[i] != '\0' && pos < max; i++) {
+        buf[pos++] = str[i];
+    }
+    return pos;
+}
+
 static void build_ble_info_string(void) {
     int pos = 0;
     int active = zmk_ble_active_profile_index();
+    int max = BLE_INFO_BUF_SIZE - 1;
 
-    for (int i = 0; i < ZMK_BLE_PROFILE_COUNT && pos < BLE_INFO_BUF_SIZE - 1; i++) {
-        if (i > 0 && pos < BLE_INFO_BUF_SIZE - 1) {
+    for (int i = 0; i < ZMK_BLE_PROFILE_COUNT && pos < max; i++) {
+        if (i > 0) {
             output_buf[pos++] = ' ';
         }
 
-        /* Profile number (1-based) */
-        if (pos < BLE_INFO_BUF_SIZE - 1) {
+        /* Active profile: [N], others: N */
+        if (i == active) {
+            output_buf[pos++] = '[';
+        }
+        if (pos < max) {
             output_buf[pos++] = '1' + i;
         }
-
-        /* Active marker */
-        if (i == active && pos < BLE_INFO_BUF_SIZE - 1) {
-            output_buf[pos++] = 'a';
+        if (i == active && pos < max) {
+            output_buf[pos++] = ']';
         }
 
-        /* Space before status */
-        if (pos < BLE_INFO_BUF_SIZE - 1) {
-            output_buf[pos++] = ' ';
+        /* Colon separator */
+        if (pos < max) {
+            output_buf[pos++] = ':';
         }
 
-        /* Connection status: C=Connected, P=Paired, O=Open */
+        /* Connection status */
         if (zmk_ble_profile_is_open(i)) {
-            if (pos < BLE_INFO_BUF_SIZE - 1) {
-                output_buf[pos++] = 'O';
-            }
+            pos = buf_append_str(output_buf, pos, max, "Open");
         } else if (zmk_ble_profile_is_connected(i)) {
-            if (pos < BLE_INFO_BUF_SIZE - 1) {
-                output_buf[pos++] = 'C';
-            }
-
-            /* Show device name for connected active profile */
-            if (i == active) {
-                char *name = zmk_ble_active_profile_name();
-                if (name && name[0] != '\0') {
-                    /* Save position to rollback if no printable chars */
-                    int name_start = pos;
-                    if (pos < BLE_INFO_BUF_SIZE - 1) {
-                        output_buf[pos++] = ' ';
-                    }
-                    int chars_written = 0;
-                    for (int j = 0; name[j] != '\0' && pos < BLE_INFO_BUF_SIZE - 1; j++) {
-                        char ch = name[j];
-                        /* Only output alphanumeric and space (JIS-safe) */
-                        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-                            (ch >= '0' && ch <= '9') || ch == ' ') {
-                            output_buf[pos++] = ch;
-                            chars_written++;
-                        }
-                    }
-                    if (chars_written == 0) {
-                        /* No printable chars, rollback the space */
-                        pos = name_start;
-                    }
-                }
-            }
+            pos = buf_append_str(output_buf, pos, max, "Connected");
         } else {
-            /* Paired but not connected */
-            if (pos < BLE_INFO_BUF_SIZE - 1) {
-                output_buf[pos++] = 'P';
-            }
+            pos = buf_append_str(output_buf, pos, max, "Paired");
         }
     }
 
