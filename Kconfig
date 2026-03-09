@@ -3,3 +3,4 @@ DT_COMPAT_ZMK_BEHAVIOR_BLE_INFO := zmk,behavior-ble-info
 config ZMK_BEHAVIOR_BLE_INFO
     bool
     default $(dt_compat_enabled,$(DT_COMPAT_ZMK_BEHAVIOR_BLE_INFO))
+    depends on ZMK_BLE && (!ZMK_SPLIT || ZMK_SPLIT_ROLE_CENTRAL)
