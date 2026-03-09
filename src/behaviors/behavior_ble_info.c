@@ -12,6 +12,7 @@
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
+#include <zephyr/settings/settings.h>
 
 #include <drivers/behavior.h>
 #include <zmk/behavior.h>
@@ -32,9 +33,56 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define DEVICE_NAME_MAX_LEN 32
 #define DEVICE_NAME_READ_DELAY_MS 1000
 
-/* ========== Device name storage ========== */
+/* ========== Device name storage with flash persistence ========== */
 
 static char device_names[ZMK_BLE_PROFILE_COUNT][DEVICE_NAME_MAX_LEN];
+
+#if IS_ENABLED(CONFIG_SETTINGS)
+
+static void device_name_save(int idx) {
+    if (idx < 0 || idx >= ZMK_BLE_PROFILE_COUNT) {
+        return;
+    }
+    char key[32];
+    snprintf(key, sizeof(key), "ble_info/names/%d", idx);
+    settings_save_one(key, device_names[idx], sizeof(device_names[idx]));
+    LOG_DBG("Saved device name for profile %d: %s", idx, device_names[idx]);
+}
+
+static int device_name_settings_set(const char *name, size_t len, settings_read_cb read_cb,
+                                    void *cb_arg) {
+    const char *next;
+
+    if (settings_name_steq(name, "names", &next) && next) {
+        char *endptr;
+        uint8_t idx = strtoul(next, &endptr, 10);
+        if (*endptr != '\0') {
+            return -EINVAL;
+        }
+        if (idx >= ZMK_BLE_PROFILE_COUNT) {
+            return -EINVAL;
+        }
+        if (len > sizeof(device_names[idx])) {
+            return -EINVAL;
+        }
+
+        int rc = read_cb(cb_arg, device_names[idx], sizeof(device_names[idx]));
+        if (rc < 0) {
+            return rc;
+        }
+        device_names[idx][DEVICE_NAME_MAX_LEN - 1] = '\0';
+        LOG_DBG("Loaded device name for profile %d: %s", idx, device_names[idx]);
+    }
+
+    return 0;
+}
+
+static struct settings_handler device_name_conf = {
+    .name = "ble_info",
+    .h_set = device_name_settings_set,
+};
+
+#endif /* IS_ENABLED(CONFIG_SETTINGS) */
 
 /* ========== GATT device name read ========== */
 
@@ -66,6 +114,10 @@ static uint8_t device_name_read_cb(struct bt_conn *conn, uint8_t err,
         memcpy(device_names[idx], data, copy_len);
         device_names[idx][copy_len] = '\0';
         LOG_INF("Profile %d device name: %s", idx, device_names[idx]);
+
+#if IS_ENABLED(CONFIG_SETTINGS)
+        device_name_save(idx);
+#endif
     }
 
     name_read_in_progress = false;
@@ -126,7 +178,7 @@ static void ble_info_connected(struct bt_conn *conn, uint8_t err) {
 }
 
 static void ble_info_disconnected(struct bt_conn *conn, uint8_t reason) {
-    /* Device name is kept for Paired display */
+    /* Device name is kept in flash for Paired display */
 
     if (pending_name_conn == conn) {
         k_work_cancel_delayable(&name_read_work);
@@ -338,13 +390,20 @@ static int on_keymap_binding_released(struct zmk_behavior_binding *binding,
     return ZMK_BEHAVIOR_OPAQUE;
 }
 
+static int behavior_ble_info_init(const struct device *dev) {
+#if IS_ENABLED(CONFIG_SETTINGS)
+    settings_register(&device_name_conf);
+#endif
+    return 0;
+}
+
 static const struct behavior_driver_api behavior_ble_info_driver_api = {
     .locality = BEHAVIOR_LOCALITY_CENTRAL,
     .binding_pressed = on_keymap_binding_pressed,
     .binding_released = on_keymap_binding_released,
 };
 
-BEHAVIOR_DT_INST_DEFINE(0, NULL, NULL, NULL, NULL, POST_KERNEL,
+BEHAVIOR_DT_INST_DEFINE(0, behavior_ble_info_init, NULL, NULL, NULL, POST_KERNEL,
                         CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &behavior_ble_info_driver_api);
 
 #endif /* DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT) */
