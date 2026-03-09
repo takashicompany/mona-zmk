@@ -155,17 +155,25 @@ static void build_ble_info_string(void) {
             /* Show device name for connected active profile */
             if (i == active) {
                 char *name = zmk_ble_active_profile_name();
-                if (name) {
+                if (name && name[0] != '\0') {
+                    /* Save position to rollback if no printable chars */
+                    int name_start = pos;
                     if (pos < BLE_INFO_BUF_SIZE - 1) {
                         output_buf[pos++] = ' ';
                     }
+                    int chars_written = 0;
                     for (int j = 0; name[j] != '\0' && pos < BLE_INFO_BUF_SIZE - 1; j++) {
                         char ch = name[j];
                         /* Only output alphanumeric and space (JIS-safe) */
                         if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
                             (ch >= '0' && ch <= '9') || ch == ' ') {
                             output_buf[pos++] = ch;
+                            chars_written++;
                         }
+                    }
+                    if (chars_written == 0) {
+                        /* No printable chars, rollback the space */
+                        pos = name_start;
                     }
                 }
             }
