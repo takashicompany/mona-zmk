@@ -9,6 +9,10 @@
 #include <zephyr/device.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/settings/settings.h>
 
 #include <drivers/behavior.h>
 #include <zmk/behavior.h>
@@ -24,8 +28,171 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 
-#define BLE_INFO_BUF_SIZE 128
+#define BLE_INFO_BUF_SIZE 256
 #define BLE_INFO_KEY_DELAY_MS 20
+#define DEVICE_NAME_MAX_LEN 32
+#define DEVICE_NAME_READ_DELAY_MS 1000
+
+/* ========== Device name storage with flash persistence ========== */
+
+static char device_names[ZMK_BLE_PROFILE_COUNT][DEVICE_NAME_MAX_LEN];
+
+#if IS_ENABLED(CONFIG_SETTINGS)
+
+static void device_name_save(int idx) {
+    if (idx < 0 || idx >= ZMK_BLE_PROFILE_COUNT) {
+        return;
+    }
+    char key[32];
+    snprintf(key, sizeof(key), "ble_info/names/%d", idx);
+    settings_save_one(key, device_names[idx], sizeof(device_names[idx]));
+    LOG_DBG("Saved device name for profile %d: %s", idx, device_names[idx]);
+}
+
+static int device_name_settings_set(const char *name, size_t len, settings_read_cb read_cb,
+                                    void *cb_arg) {
+    const char *next;
+
+    if (settings_name_steq(name, "names", &next) && next) {
+        char *endptr;
+        uint8_t idx = strtoul(next, &endptr, 10);
+        if (*endptr != '\0') {
+            return -EINVAL;
+        }
+        if (idx >= ZMK_BLE_PROFILE_COUNT) {
+            return -EINVAL;
+        }
+        if (len > sizeof(device_names[idx])) {
+            return -EINVAL;
+        }
+
+        int rc = read_cb(cb_arg, device_names[idx], sizeof(device_names[idx]));
+        if (rc < 0) {
+            return rc;
+        }
+        device_names[idx][DEVICE_NAME_MAX_LEN - 1] = '\0';
+        LOG_DBG("Loaded device name for profile %d: %s", idx, device_names[idx]);
+    }
+
+    return 0;
+}
+
+static struct settings_handler device_name_conf = {
+    .name = "ble_info",
+    .h_set = device_name_settings_set,
+};
+
+#endif /* IS_ENABLED(CONFIG_SETTINGS) */
+
+/* ========== GATT device name read ========== */
+
+static struct bt_conn *pending_name_conn;
+static struct bt_gatt_read_params name_read_params;
+static bool name_read_in_progress;
+
+static void name_read_work_handler(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(name_read_work, name_read_work_handler);
+
+static uint8_t device_name_read_cb(struct bt_conn *conn, uint8_t err,
+                                   struct bt_gatt_read_params *params,
+                                   const void *data, uint16_t length) {
+    if (err || !data || length == 0) {
+        LOG_DBG("Device name read done (err=%d)", err);
+        name_read_in_progress = false;
+        if (pending_name_conn) {
+            bt_conn_unref(pending_name_conn);
+            pending_name_conn = NULL;
+        }
+        return BT_GATT_ITER_STOP;
+    }
+
+    const bt_addr_le_t *addr = bt_conn_get_dst(conn);
+    int idx = zmk_ble_profile_index(addr);
+
+    if (idx >= 0 && idx < ZMK_BLE_PROFILE_COUNT) {
+        int copy_len = MIN(length, DEVICE_NAME_MAX_LEN - 1);
+        memcpy(device_names[idx], data, copy_len);
+        device_names[idx][copy_len] = '\0';
+        LOG_INF("Profile %d device name: %s", idx, device_names[idx]);
+
+#if IS_ENABLED(CONFIG_SETTINGS)
+        device_name_save(idx);
+#endif
+    }
+
+    name_read_in_progress = false;
+    if (pending_name_conn) {
+        bt_conn_unref(pending_name_conn);
+        pending_name_conn = NULL;
+    }
+
+    return BT_GATT_ITER_STOP;
+}
+
+static void name_read_work_handler(struct k_work *work) {
+    if (!pending_name_conn || name_read_in_progress) {
+        return;
+    }
+
+    memset(&name_read_params, 0, sizeof(name_read_params));
+    name_read_params.func = device_name_read_cb;
+    name_read_params.handle_count = 0;
+    name_read_params.by_uuid.uuid = BT_UUID_GAP_DEVICE_NAME;
+    name_read_params.by_uuid.start_handle = 0x0001;
+    name_read_params.by_uuid.end_handle = 0xffff;
+
+    name_read_in_progress = true;
+    int err = bt_gatt_read(pending_name_conn, &name_read_params);
+    if (err) {
+        LOG_WRN("Failed to read device name (err %d)", err);
+        name_read_in_progress = false;
+        bt_conn_unref(pending_name_conn);
+        pending_name_conn = NULL;
+    }
+}
+
+static void ble_info_connected(struct bt_conn *conn, uint8_t err) {
+    if (err) {
+        return;
+    }
+
+    struct bt_conn_info info;
+    if (bt_conn_get_info(conn, &info)) {
+        return;
+    }
+
+    /* Only read device name for host connections (keyboard is peripheral) */
+    if (info.role != BT_CONN_ROLE_PERIPHERAL) {
+        return;
+    }
+
+    k_work_cancel_delayable(&name_read_work);
+
+    if (pending_name_conn) {
+        bt_conn_unref(pending_name_conn);
+    }
+    pending_name_conn = bt_conn_ref(conn);
+
+    /* Delay to allow encryption/bonding to complete */
+    k_work_schedule(&name_read_work, K_MSEC(DEVICE_NAME_READ_DELAY_MS));
+}
+
+static void ble_info_disconnected(struct bt_conn *conn, uint8_t reason) {
+    /* Device name is kept in flash for Paired display */
+
+    if (pending_name_conn == conn) {
+        k_work_cancel_delayable(&name_read_work);
+        bt_conn_unref(pending_name_conn);
+        pending_name_conn = NULL;
+    }
+}
+
+BT_CONN_CB_DEFINE(ble_info_conn_cb) = {
+    .connected = ble_info_connected,
+    .disconnected = ble_info_disconnected,
+};
+
+/* ========== HID keycode mapping ========== */
 
 static uint8_t char_to_hid_keycode(char c, bool *need_shift) {
     *need_shift = false;
@@ -60,7 +227,8 @@ static uint8_t char_to_hid_keycode(char c, bool *need_shift) {
     return 0; /* unsupported character */
 }
 
-/* Work item state */
+/* ========== HID keystroke output ========== */
+
 static char output_buf[BLE_INFO_BUF_SIZE];
 static int output_len;
 static int output_pos;
@@ -88,10 +256,8 @@ static void ble_info_work_handler(struct k_work *work) {
         key_pressed = false;
 
         if (output_pos < output_len) {
-            /* Schedule next key press after release delay */
             k_work_schedule(&ble_info_work, K_MSEC(BLE_INFO_KEY_DELAY_MS));
         } else {
-            /* All done */
             output_busy = false;
             LOG_DBG("BLE info output complete");
         }
@@ -119,13 +285,25 @@ static void ble_info_work_handler(struct k_work *work) {
 
     output_pos++;
 
-    /* Schedule release after press delay */
     k_work_schedule(&ble_info_work, K_MSEC(BLE_INFO_KEY_DELAY_MS));
 }
+
+/* ========== Output string builder ========== */
 
 static int buf_append_str(char *buf, int pos, int max, const char *str) {
     for (int i = 0; str[i] != '\0' && pos < max; i++) {
         buf[pos++] = str[i];
+    }
+    return pos;
+}
+
+static int buf_append_filtered_str(char *buf, int pos, int max, const char *str) {
+    for (int i = 0; str[i] != '\0' && pos < max; i++) {
+        char ch = str[i];
+        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9') || ch == ' ') {
+            buf[pos++] = ch;
+        }
     }
     return pos;
 }
@@ -164,11 +342,25 @@ static void build_ble_info_string(void) {
         } else {
             pos = buf_append_str(output_buf, pos, max, "Paired");
         }
+
+        /* Append device name if available (Connected or Paired) */
+        if (!zmk_ble_profile_is_open(i) && device_names[i][0] != '\0') {
+            if (pos < max) {
+                output_buf[pos++] = ' ';
+            }
+            int name_start = pos;
+            pos = buf_append_filtered_str(output_buf, pos, max, device_names[i]);
+            if (pos == name_start) {
+                pos = name_start - 1;
+            }
+        }
     }
 
     output_buf[pos] = '\0';
     output_len = pos;
 }
+
+/* ========== Behavior callbacks ========== */
 
 static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
                                      struct zmk_behavior_binding_event event) {
@@ -188,7 +380,6 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
     key_pressed = false;
     output_busy = true;
 
-    /* Start output immediately */
     k_work_schedule(&ble_info_work, K_NO_WAIT);
 
     return ZMK_BEHAVIOR_OPAQUE;
@@ -199,13 +390,20 @@ static int on_keymap_binding_released(struct zmk_behavior_binding *binding,
     return ZMK_BEHAVIOR_OPAQUE;
 }
 
+static int behavior_ble_info_init(const struct device *dev) {
+#if IS_ENABLED(CONFIG_SETTINGS)
+    settings_register(&device_name_conf);
+#endif
+    return 0;
+}
+
 static const struct behavior_driver_api behavior_ble_info_driver_api = {
     .locality = BEHAVIOR_LOCALITY_CENTRAL,
     .binding_pressed = on_keymap_binding_pressed,
     .binding_released = on_keymap_binding_released,
 };
 
-BEHAVIOR_DT_INST_DEFINE(0, NULL, NULL, NULL, NULL, POST_KERNEL,
+BEHAVIOR_DT_INST_DEFINE(0, behavior_ble_info_init, NULL, NULL, NULL, POST_KERNEL,
                         CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &behavior_ble_info_driver_api);
 
 #endif /* DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT) */
