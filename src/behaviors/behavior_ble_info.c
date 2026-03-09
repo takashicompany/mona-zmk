@@ -126,12 +126,7 @@ static void ble_info_connected(struct bt_conn *conn, uint8_t err) {
 }
 
 static void ble_info_disconnected(struct bt_conn *conn, uint8_t reason) {
-    const bt_addr_le_t *addr = bt_conn_get_dst(conn);
-    int idx = zmk_ble_profile_index(addr);
-
-    if (idx >= 0 && idx < ZMK_BLE_PROFILE_COUNT) {
-        device_names[idx][0] = '\0';
-    }
+    /* Device name is kept for Paired display */
 
     if (pending_name_conn == conn) {
         k_work_cancel_delayable(&name_read_work);
@@ -287,25 +282,25 @@ static void build_ble_info_string(void) {
             output_buf[pos++] = ':';
         }
 
-        /* Connection status and device name */
+        /* Connection status */
         if (zmk_ble_profile_is_open(i)) {
             pos = buf_append_str(output_buf, pos, max, "Open");
         } else if (zmk_ble_profile_is_connected(i)) {
             pos = buf_append_str(output_buf, pos, max, "Connected");
-            /* Append device name if available */
-            if (device_names[i][0] != '\0') {
-                if (pos < max) {
-                    output_buf[pos++] = ' ';
-                }
-                int name_start = pos;
-                pos = buf_append_filtered_str(output_buf, pos, max, device_names[i]);
-                if (pos == name_start) {
-                    /* No printable chars, rollback space */
-                    pos = name_start - 1;
-                }
-            }
         } else {
             pos = buf_append_str(output_buf, pos, max, "Paired");
+        }
+
+        /* Append device name if available (Connected or Paired) */
+        if (!zmk_ble_profile_is_open(i) && device_names[i][0] != '\0') {
+            if (pos < max) {
+                output_buf[pos++] = ' ';
+            }
+            int name_start = pos;
+            pos = buf_append_filtered_str(output_buf, pos, max, device_names[i]);
+            if (pos == name_start) {
+                pos = name_start - 1;
+            }
         }
     }
 
